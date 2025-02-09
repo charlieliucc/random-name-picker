@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>点名神器 - 课堂随机点名</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 850px;
+            margin: 20px auto;
+            padding: 20px;
+        }
+        .container {
+            display: flex;
+            gap: 30px;
+        }
+        .input-area, .history-area {
+            flex: 1;
+        }
+        #display {
+            font-size: 150px;  /* 放大字体 */
+            text-align: center;
+            margin: 50px 0;
+            min-height: 300px;
+            min-width: 600px;
+            color: #2c3e50;
+            font-weight: bold;
+        }
+        textarea {
+            width: 100%;
+            height: 200px;
+            margin: 10px 0;
+            padding: 5px;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            margin: 5px;
+        }
+
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 60px;
+            height: 34px;
+        }
+        .switch input { 
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ccc;
+            transition: .4s;
+            border-radius: 34px;
+        }
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 26px;
+            width: 26px;
+            left: 4px;
+            bottom: 4px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+        input:checked + .slider {
+            background-color: #4CAF50;
+        }
+        input:checked + .slider:before {
+            transform: translateX(26px);
+        }
+        .history-list {
+            border: 1px solid #ddd;
+            padding: 10px;
+            min-height: 500px;
+        }
+        input[type="file"] {
+            display: none;
+        }
+        .file-label, button {
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            margin: 5px;
+            display: inline-block;
+        }
+    </style>
+</head>
+<body>
+    <h1>点名神器</h1>
+    <div class="container">
+        <div class="input-area">
+           
+            <div id="display"></div>
+            <div>
+                <button id="startBtn" onclick="startRoll()" disabled>开始</button>
+                <button id="stopBtn" onclick="stopRoll()" style="display:none;">暂停</button>
+                <label class="switch">
+                    <input type="checkbox" id="repeatSwitch">
+                    <span class="slider"></span>
+                </label>
+                <span>允许重复抽选</span>
+                
+            </div>
+            <textarea id="nameList" placeholder="请输入学生名单，每行一个姓名" oninput="checkNames()"></textarea>
+            <label for="fileInput" class="file-label">导入名单</label>
+            <input type="file" id="fileInput" accept=".txt" onchange="importNames(event)">
+            <button class="file-label" onclick="clearNames()">清空名单</button>
+        </div>
+        <div class="history-area">
+            <h3>点名记录（最近10条）</h3>
+            <div class="history-list" id="history"></div>
+        </div>
+    </div>
+
+    <script>
+        function checkNames() {
+            const nameList = document.getElementById('nameList').value.trim();
+            document.getElementById('startBtn').disabled = nameList === '';
+        }
+        let isRolling = false;
+        let intervalId = null;
+        let remainingStudents = [];
+        let originalList = [];
+        let history = [];
+        let startAudio = new Audio('resources/voice/start.mp3');
+        let congratsAudio = new Audio('resources/voice/congrats.mp3');
+
+        // 初始化本地存储
+        function loadState() {
+            const saved = localStorage.getItem('rollCallState');
+            if (saved) {
+                const state = JSON.parse(saved);
+                originalList = state.originalList || [];
+                remainingStudents = state.remainingStudents || [];
+                history = state.history || [];
+                document.getElementById('repeatSwitch').checked = state.allowRepeat || false;
+                document.getElementById('nameList').value = originalList.join('\n');
+                updateHistoryDisplay();
+                checkNames();
+            }
+        }
+
+        function saveState() {
+            const state = {
+                originalList,
+                remainingStudents,
+                history,
+                allowRepeat: document.getElementById('repeatSwitch').checked
+            };
+            localStorage.setItem('rollCallState', JSON.stringify(state));
+        }
+
+        function startRoll() {
+            if (remainingStudents.length === 0 || document.getElementById('repeatSwitch').checked) {
+                originalList = document.getElementById('nameList').value
+                    .split('\n')
+                    .map(name => name.trim())
+                    .filter(name => name);
+                
+                if (originalList.length === 0) {
+                    alert('请输入有效名单！');
+                    return;
+                }
+                remainingStudents = [...originalList];
+            }
+            intervalId = setInterval(() => {
+                const available = document.getElementById('repeatSwitch').checked ? 
+                    originalList : remainingStudents;
+                const randomIndex = Math.floor(Math.random() * available.length);
+                document.getElementById('display').textContent = available[randomIndex];
+            }, 100);
+            startAudio.loop = true;
+            startAudio.play(); // 循环播放开始声音
+            isRolling = true;
+            document.getElementById('startBtn').style.display = 'none';
+            document.getElementById('stopBtn').style.display = 'inline-block';
+            saveState();
+        }
+
+        function stopRoll() {
+            clearInterval(intervalId);
+            const selected = document.getElementById('display').textContent;
+            
+            if (!document.getElementById('repeatSwitch').checked) {
+                remainingStudents = remainingStudents.filter(name => name !== selected);
+            }
+            
+            history.unshift(`${new Date().toLocaleTimeString()} 抽中：${selected}`);
+            history = history.slice(0, 10);
+            
+            updateHistoryDisplay();
+            checkEmpty();
+            startAudio.pause(); // 停止播放开始声音
+            startAudio.currentTime = 0;
+            congratsAudio.currentTime = 0; // 确保从头播放
+            congratsAudio.play(); // 播放暂停声音
+            isRolling = false;
+            document.getElementById('startBtn').style.display = 'inline-block';
+            document.getElementById('stopBtn').style.display = 'none';
+            saveState();
+        }
+
+        function updateHistoryDisplay() {
+            document.getElementById('history').innerHTML = 
+                history.map(item => `<div>${item}</div>`).join('');
+        }
+
+        function checkEmpty() {
+            if (remainingStudents.length === 0 && !document.getElementById('repeatSwitch').checked) {
+                alert('所有学生都已抽完！');
+                document.getElementById('startBtn').disabled = true;
+            }
+        }
+
+        function importNames(event) {
+            const file = event.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    document.getElementById('nameList').value = e.target.result;
+                    checkNames();
+                };
+                reader.readAsText(file);
+            }
+        }
+
+        function clearNames() {
+            document.getElementById('nameList').value = '';
+            document.getElementById('display').textContent = '';
+            document.getElementById('history').innerHTML = '';
+            originalList = [];
+            remainingStudents = [];
+            history = [];
+            checkNames();
+            saveState();
+        }
+
+        // 事件监听
+        document.getElementById('nameList').addEventListener('input', function() {
+            document.getElementById('startBtn').disabled = this.value.trim() === '';
+            originalList = this.value.split('\n').map(n => n.trim()).filter(n => n);
+            remainingStudents = [...originalList];
+            history = [];
+            updateHistoryDisplay();
+            saveState();
+        });
+
+        document.getElementById('repeatSwitch').addEventListener('change', () => {
+            if (document.getElementById('repeatSwitch').checked) {
+                remainingStudents = [...originalList];
+            } else {
+                remainingStudents = originalList.filter(name => !history.some(record => record.includes(name)));
+            }
+            saveState();
+        });
+
+        // 初始化
+        loadState();
+        checkNames();
+    </script>
+</body>
+<br>
+<footer>copyright 2025 charlieliucc version: 250206v3</footer>
+</html>
